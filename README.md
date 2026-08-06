@@ -1,46 +1,69 @@
-# stonetape 📼👻
+# stonetape 📼
 
-> **Record once. Replay forever.** Deterministic tests for LLM apps.
+> **Stonetape turns real LLM and tool interactions into hermetic regression tests for TypeScript applications.**
 
-*Named after the [Stone Tape Theory](https://en.wikipedia.org/wiki/Stone_Tape) — the idea that places record events and replay them, endlessly, like magnetic tape. Your LLM calls, recorded once — haunting your CI forever (in a good way).*
+Record a real agent run once. Replay it in CI forever: zero tokens, zero flakiness, no API keys, fully parallel.
+
+**Mocks test scenarios you imagined. Stonetape preserves the messy ones that actually happened.**
+
+*Named after the [Stone Tape Theory](https://en.wikipedia.org/wiki/Stone_Tape) — the idea that places record events and replay them, endlessly, like magnetic tape.*
 
 ## Status
 
-⚠️ **v0.0.1 is a name reservation.** v0.1 is under active development.
+🚧 **Alpha under active development** — falsification sprint in progress. API may change before 0.1.
 
-## What it will do
+## Quick start
 
 ```ts
-import { cassette } from "stonetape/vitest";
+import { openCassette } from "stonetape";
+import OpenAI from "openai";
 
-test("refund agent issues refund", cassette("support/refund-flow"), async () => {
-  const outcome = await runAgent("I want a refund on order #4411");
-  expect(outcome.action).toBe("refund_issued");
-});
+const tape = openCassette("tests/cassettes/weather-agent.yaml");
+const client = new OpenAI({ fetch: tape.fetch });
+
+// ... run your agent ...
+
+tape.close();
 ```
 
 ```bash
 STONETAPE_MODE=record vitest   # hits the real API once, writes the cassette
-vitest                         # replays forever: $0, 0 flakes, no API keys in CI
+vitest                         # replays forever: no network, no keys, deterministic
 ```
 
-- **Record real LLM interactions** (OpenAI, Anthropic, Vercel AI SDK) — requests, responses, tool calls, and streaming chunks, faithfully.
-- **Replay deterministically** in CI: zero tokens, zero flakiness, full parallelism, no secrets.
-- **Smart matching** — ignore volatile prompt fields (timestamps, IDs) declaratively instead of watching strict matching explode.
-- **Agent sessions** — cassettes capture whole chains (LLM → tool call → LLM → …) and fail with an explicit chain diff when behavior changes.
-- **Secret redaction** by default — cassettes are safe to commit.
-- **Behavior diffs on re-record** — prompt changes become reviewable in PRs.
+With the vitest helper:
 
-## Why not just…
+```ts
+import { cassette } from "stonetape/vitest";
 
-- **vcrpy / Polly.JS?** Generic HTTP recorders don't understand LLM streaming, volatile prompt fields, tool-call sessions, or produce behavior diffs.
-- **Provider prompt caching / proxy caches?** A cache saves money; it doesn't give you offline determinism, versioned test artifacts, or a reviewable diff of model behavior.
-- **Hand-written mocks?** They lie. Recorded cassettes have the real shape, the real edge cases, the real streaming chunks.
+test("weather agent", cassette("weather-agent", async ({ fetch }) => {
+  const client = new OpenAI({ fetch });
+  const result = await runAgent(client, "What's the weather in Cluj?");
+  expect(result.city).toBe("Cluj");
+}));
+```
 
-## Follow along
+## What stonetape does
 
-- Site: [stonetape.dev](https://stonetape.dev)
-- Repo: [github.com/stonetape-dev/stonetape](https://github.com/stonetape-dev/stonetape)
+- **Records** real LLM interactions — requests, responses, tool-call chains, streaming chunks — into human-readable YAML cassettes you commit and review in PRs.
+- **Replays** them deterministically. **Fail-closed:** in replay mode, no unrecorded network call ever escapes. Unmatched requests fail with an explanation of exactly what differed — including chain position ("expected call 2 of 3").
+- **Redacts** known secret shapes (auth headers, API-key patterns) before anything touches disk — plus safety checks. Don't rely on it blindly for PII.
+
+## What stonetape does NOT do
+
+- It does **not** test model quality — a cassette proves your app still handles previously recorded behavior; it doesn't prove the live model behaves well today. Use evals for that (they're complementary).
+- It is **not** an LLM cache — caches save money at runtime; stonetape gives you versioned test artifacts, offline determinism, and reviewable behavior diffs.
+- It does not magically reproduce every agent — side-effectful tools are replayed, not re-executed.
+
+## vs. the alternatives
+
+| | Hand-written / official mocks (`MockLanguageModelV4`) | Generic VCR (vcrpy, Polly.JS) | stonetape |
+|---|---|---|---|
+| Response shape | what you imagined | real | real |
+| Tool-call chains | manual, brittle | not understood | first-class |
+| LLM streaming | manual simulation | fragile | recorded chunks |
+| Volatile prompt fields | n/a | strict-match explosions | declarative ignores |
+| Mismatch UX | n/a | generic error | explains what changed, where in the chain |
 
 ## License
 

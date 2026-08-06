@@ -26,10 +26,18 @@ import {
 
 export type Mode = "record" | "replay" | "live";
 
+/** Chain-order policy: `strict` = calls must replay in recorded order (chain
+ * integrity for agents); `any` = fingerprint match anywhere (concurrency-safe
+ * for independent parallel calls). */
+export type OrderMode = "strict" | "any";
+
 export interface TapeSession {
+  /** Cassette file path — used in error messages and `stonetape diff` hints. */
+  path: string;
   cassette: Cassette;
   mode: Mode;
   match: MatchOptions;
+  order: OrderMode;
   /** seqs already consumed in this replay run — enforces per-run isolation. */
   consumed: Set<number>;
   /** Called after a recording run to persist new interactions. */
@@ -81,15 +89,25 @@ export function createFetch(session: TapeSession, realFetch: typeof fetch = fetc
 
 function replay(session: TapeSession, method: string, url: string, body: unknown): Response {
   const fp = fingerprint(method, url, body, session.match);
-  // Session ordering: first unconsumed interaction with this fingerprint.
-  const hit = session.cassette.interactions.find(
-    (i) => !session.consumed.has(i.seq) && i.request.fingerprint === fp,
-  );
+  const unconsumed = session.cassette.interactions.filter((i) => !session.consumed.has(i.seq));
+
+  if (session.order === "strict") {
+    const next = unconsumed[0];
+    if (next && next.request.fingerprint === fp) {
+      session.consumed.add(next.seq);
+      return materialize(next);
+    }
+    throw new StonetapeReplayError(
+      buildMismatchMessage(session, method, url, body, { strictNext: next, fp }),
+    );
+  }
+
+  const hit = unconsumed.find((i) => i.request.fingerprint === fp);
   if (hit) {
     session.consumed.add(hit.seq);
     return materialize(hit);
   }
-  throw new StonetapeReplayError(buildMismatchMessage(session, method, url, body));
+  throw new StonetapeReplayError(buildMismatchMessage(session, method, url, body, { fp }));
 }
 
 /** The error message IS the product: explain, don't just fail. */
@@ -98,40 +116,105 @@ function buildMismatchMessage(
   method: string,
   url: string,
   body: unknown,
+  ctx: { strictNext?: Interaction | undefined; fp: string },
 ): string {
-  const header = `stonetape: no recorded interaction matches this request (fail-closed replay).\n  ${method} ${url}\n`;
-  // Nearest miss: same normalized method+url, different body.
-  const norm = normalizeRequest(method, url, body, session.match);
-  const candidate = session.cassette.interactions.find((i) => {
-    const c = normalizeRequest(i.request.method, i.request.url, i.request.body, session.match);
-    return c.method === norm.method && c.url === norm.url && !session.consumed.has(i.seq);
-  });
-  if (candidate) {
-    const diffs = explainDiff(
-      normalizeRequest(
-        candidate.request.method,
-        candidate.request.url,
-        candidate.request.body,
-        session.match,
-      ).body,
-      norm.body,
+  const total = session.cassette.interactions.length;
+  const position = session.consumed.size + 1;
+  const lines: string[] = [
+    `Stonetape cassette mismatch`,
+    ``,
+    `Cassette: ${session.path}`,
+    `Expected call: ${position} of ${total}`,
+    `Request: ${method} ${url}`,
+    ``,
+  ];
+
+  const unconsumed = session.cassette.interactions.filter((i) => !session.consumed.has(i.seq));
+
+  if (total === 0) {
+    lines.push(`The cassette is empty — it has never been recorded.`);
+  } else if (unconsumed.length === 0) {
+    lines.push(
+      `All ${total} recorded calls were already consumed — the app made MORE calls`,
+      `than were recorded. (Did a tool or retry run twice?)`,
     );
-    return (
-      header +
-      `Closest recorded request (seq ${candidate.seq}) differs:\n` +
-      formatDifferences(diffs) +
-      `\n\nFix: add volatile paths to \`ignore\`, or re-record: STONETAPE_MODE=record`
-    );
+  } else if (session.order === "strict") {
+    const next = ctx.strictNext;
+    const outOfOrder = unconsumed.find((i) => i.request.fingerprint === ctx.fp);
+    if (outOfOrder && next) {
+      lines.push(
+        `This request matches recorded call ${outOfOrder.seq + 1} (${describe(outOfOrder)}),`,
+        `but call ${next.seq + 1} (${describe(next)}) was expected next.`,
+        `Calls arrived OUT OF ORDER — the chain changed.`,
+      );
+    } else if (next) {
+      lines.push(`Differences vs recorded call ${next.seq + 1} (${describe(next)}):`);
+      lines.push(diffAgainst(session, next, method, url, body));
+    }
+  } else {
+    const candidate = nearestMiss(session, method, url, body, unconsumed);
+    if (candidate) {
+      lines.push(`Differences vs recorded call ${candidate.seq + 1} (${describe(candidate)}):`);
+      lines.push(diffAgainst(session, candidate, method, url, body));
+    } else {
+      lines.push(
+        `No recorded request for this endpoint. The cassette has ${total} interaction(s)`,
+        `for other endpoints.`,
+      );
+    }
   }
-  if (session.cassette.interactions.length === 0) {
-    return header + `The cassette is empty. Record it first: STONETAPE_MODE=record`;
-  }
-  return (
-    header +
-    `No recorded request for this endpoint. ` +
-    `The cassette has ${session.cassette.interactions.length} interaction(s) for other endpoints.\n` +
-    `Fix: re-record this test: STONETAPE_MODE=record`
+
+  lines.push(
+    ``,
+    `Ignored fields:`,
+    ...(session.match.ignore?.length
+      ? session.match.ignore.map((p) => `  - ${p}`)
+      : [`  (none configured — add volatile paths via \`match.ignore\`)`]),
+    ``,
+    `To inspect:  npx stonetape diff ${session.path}`,
+    `Re-record:   STONETAPE_MODE=record vitest`,
   );
+  return lines.join("\n");
+}
+
+function describe(i: Interaction): string {
+  const c = i.canonical;
+  if (!c) return "unknown";
+  return [c.kind, c.model].filter(Boolean).join(" ");
+}
+
+function diffAgainst(
+  session: TapeSession,
+  recorded: Interaction,
+  method: string,
+  url: string,
+  body: unknown,
+): string {
+  const recordedNorm = normalizeRequest(
+    recorded.request.method,
+    recorded.request.url,
+    recorded.request.body,
+    session.match,
+  );
+  const incomingNorm = normalizeRequest(method, url, body, session.match);
+  if (recordedNorm.url !== incomingNorm.url || recordedNorm.method !== incomingNorm.method) {
+    return `  endpoint differs:\n    recorded: ${recordedNorm.method} ${recordedNorm.url}\n    incoming: ${incomingNorm.method} ${incomingNorm.url}`;
+  }
+  return formatDifferences(explainDiff(recordedNorm.body, incomingNorm.body));
+}
+
+function nearestMiss(
+  session: TapeSession,
+  method: string,
+  url: string,
+  body: unknown,
+  unconsumed: Interaction[],
+): Interaction | undefined {
+  const norm = normalizeRequest(method, url, body, session.match);
+  return unconsumed.find((i) => {
+    const c = normalizeRequest(i.request.method, i.request.url, i.request.body, session.match);
+    return c.method === norm.method && c.url === norm.url;
+  });
 }
 
 async function captureResponse(

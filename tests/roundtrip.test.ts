@@ -81,7 +81,7 @@ describe("record → replay roundtrip", () => {
       StonetapeReplayError,
     );
     await expect(callChat(tape.fetch, "a DIFFERENT prompt")).rejects.toThrow(
-      /Closest recorded request/,
+      /Differences vs recorded call/,
     );
     tape.close();
   });

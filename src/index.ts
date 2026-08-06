@@ -3,11 +3,11 @@
  * https://stonetape.dev
  */
 import { loadOrCreate, saveCassette } from "./store/fs.js";
-import { type Mode, type TapeSession, createFetch } from "./transport/fetch.js";
+import { type Mode, type OrderMode, type TapeSession, createFetch } from "./transport/fetch.js";
 import type { MatchOptions } from "./matching/fingerprint.js";
 
 export { StonetapeReplayError } from "./transport/fetch.js";
-export type { Mode } from "./transport/fetch.js";
+export type { Mode, OrderMode } from "./transport/fetch.js";
 export type { MatchOptions, MatchMode } from "./matching/fingerprint.js";
 export type { Cassette, Interaction } from "./schema/cassette.js";
 export { SCHEMA_VERSION } from "./schema/cassette.js";
@@ -19,6 +19,12 @@ export interface TapeOptions {
   mode?: Mode;
   /** Matching behavior. Default: smart with no ignores (== strict in practice). */
   match?: Partial<MatchOptions>;
+  /**
+   * Chain-order policy. `strict` (default): calls must replay in recorded
+   * order — catches agent-chain regressions (skipped/duplicated/reordered
+   * steps). Use `any` for tests firing independent parallel LLM calls.
+   */
+  order?: OrderMode;
   /** Underlying fetch used in record/live modes. Default: globalThis.fetch. */
   fetch?: typeof fetch;
 }
@@ -35,9 +41,11 @@ export interface Tape {
 export function openCassette(path: string, options: TapeOptions = {}): Tape {
   const mode = options.mode ?? modeFromEnv();
   const session: TapeSession = {
+    path,
     cassette: loadOrCreate(path, VERSION),
     mode,
     match: { mode: options.match?.mode ?? "smart", ignore: options.match?.ignore ?? [] },
+    order: options.order ?? "strict",
     consumed: new Set(),
     dirty: false,
   };

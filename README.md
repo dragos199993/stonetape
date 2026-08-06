@@ -2,6 +2,8 @@
 
 > **Stonetape turns real LLM and tool interactions into hermetic regression tests for TypeScript applications.**
 
+![stonetape demo](assets/demo.gif)
+
 Record a real agent run once. Replay it in CI forever: zero tokens, zero flakiness, no API keys, fully parallel.
 
 **Mocks test scenarios you imagined. Stonetape preserves the messy ones that actually happened.**

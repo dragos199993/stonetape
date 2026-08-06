@@ -31,13 +31,21 @@ export type Mode = "record" | "replay" | "live";
  * for independent parallel calls). */
 export type OrderMode = "strict" | "any";
 
+/** Normalized ordering policy. `concurrent` lists URL substrings exempt from
+ * strict ordering — fire-and-forget calls (telemetry, detached judges) that
+ * interleave nondeterministically with the main chain (issue #2). */
+export interface OrderPolicy {
+  mode: OrderMode;
+  concurrent: string[];
+}
+
 export interface TapeSession {
   /** Cassette file path — used in error messages and `stonetape diff` hints. */
   path: string;
   cassette: Cassette;
   mode: Mode;
   match: MatchOptions;
-  order: OrderMode;
+  order: OrderPolicy;
   /** seqs already consumed in this replay run — enforces per-run isolation. */
   consumed: Set<number>;
   /** Mismatches raised during replay — kept even if the app swallows the error
@@ -96,8 +104,16 @@ function replay(session: TapeSession, method: string, url: string, body: unknown
   const fp = fingerprint(method, url, body, session.match);
   const unconsumed = session.cassette.interactions.filter((i) => !session.consumed.has(i.seq));
 
-  if (session.order === "strict") {
-    const next = unconsumed[0];
+  const relaxed =
+    session.order.mode === "any" || session.order.concurrent.some((p) => url.includes(p));
+
+  if (!relaxed) {
+    // Strict ordering applies to the non-concurrent subset of the chain:
+    // the next expected call is the first unconsumed interaction that is
+    // NOT itself a declared-concurrent endpoint.
+    const next = unconsumed.find(
+      (i) => !session.order.concurrent.some((p) => i.request.url.includes(p)),
+    );
     if (next && next.request.fingerprint === fp) {
       session.consumed.add(next.seq);
       return materialize(next);
@@ -148,7 +164,7 @@ function buildMismatchMessage(
       `All ${total} recorded calls were already consumed — the app made MORE calls`,
       `than were recorded. (Did a tool or retry run twice?)`,
     );
-  } else if (session.order === "strict") {
+  } else if (session.order.mode === "strict") {
     const next = ctx.strictNext;
     const outOfOrder = unconsumed.find((i) => i.request.fingerprint === ctx.fp);
     if (outOfOrder && next) {

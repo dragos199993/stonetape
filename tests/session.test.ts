@@ -108,3 +108,55 @@ describe("agent chain semantics", () => {
     tape.close();
   });
 });
+
+describe("mixed ordering: strict chain + declared-concurrent endpoints (issue #2)", () => {
+  const mixedPath = join(dir, "mixed.yaml");
+
+  function callUrl(tapeFetch: typeof fetch, path: string, step: string) {
+    return tapeFetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-test", step }),
+    });
+  }
+
+  it("records a chain with a fire-and-forget telemetry call in the middle", async () => {
+    const tape = openCassette(mixedPath, { mode: "record" });
+    await callUrl(tape.fetch, "/v1/chat", "plan");
+    await callUrl(tape.fetch, "/telemetry", "fire-and-forget");
+    await callUrl(tape.fetch, "/v1/chat", "answer");
+    tape.close();
+  });
+
+  it("replays with telemetry arriving late — strict chain intact, concurrent exempt", async () => {
+    const tape = openCassette(mixedPath, {
+      mode: "replay",
+      order: { mode: "strict", concurrent: ["/telemetry"] },
+    });
+    await callUrl(tape.fetch, "/v1/chat", "plan");
+    await callUrl(tape.fetch, "/v1/chat", "answer"); // chain continues before telemetry lands
+    await callUrl(tape.fetch, "/telemetry", "fire-and-forget"); // arrives whenever
+    tape.close();
+  });
+
+  it("plain strict (no exemption) fails on the same interleaving", async () => {
+    const tape = openCassette(mixedPath, { mode: "replay" });
+    await callUrl(tape.fetch, "/v1/chat", "plan");
+    const err = await callUrl(tape.fetch, "/v1/chat", "answer").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StonetapeReplayError);
+    expect((err as Error).message).toContain("OUT OF ORDER");
+    tape.close();
+  });
+
+  it("still catches chain regressions among the strict subset", async () => {
+    const tape = openCassette(mixedPath, {
+      mode: "replay",
+      order: { mode: "strict", concurrent: ["/telemetry"] },
+    });
+    // orchestration bug: the chain calls arrive reversed
+    const err = await callUrl(tape.fetch, "/v1/chat", "answer").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StonetapeReplayError);
+    expect((err as Error).message).toContain("OUT OF ORDER");
+    tape.close();
+  });
+});

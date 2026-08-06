@@ -7,6 +7,7 @@ import { emptyCassette } from "./schema/cassette.js";
 import {
   type Mode,
   type OrderMode,
+  type OrderPolicy,
   type TapeSession,
   StonetapeReplayError,
   createFetch,
@@ -14,7 +15,7 @@ import {
 import type { MatchOptions } from "./matching/fingerprint.js";
 
 export { StonetapeReplayError } from "./transport/fetch.js";
-export type { Mode, OrderMode } from "./transport/fetch.js";
+export type { Mode, OrderMode, OrderPolicy } from "./transport/fetch.js";
 export type { MatchOptions, MatchMode } from "./matching/fingerprint.js";
 export type { Cassette, Interaction } from "./schema/cassette.js";
 export { SCHEMA_VERSION } from "./schema/cassette.js";
@@ -29,9 +30,15 @@ export interface TapeOptions {
   /**
    * Chain-order policy. `strict` (default): calls must replay in recorded
    * order — catches agent-chain regressions (skipped/duplicated/reordered
-   * steps). Use `any` for tests firing independent parallel LLM calls.
+   * steps). Use `any` for tests firing independent parallel LLM calls, or
+   * the mixed form for apps with fire-and-forget side calls:
+   *
+   *   order: { mode: "strict", concurrent: ["/v1/feedback", "/telemetry"] }
+   *
+   * Declared-concurrent endpoints match by fingerprint anywhere; everything
+   * else keeps strict chain ordering.
    */
-  order?: OrderMode;
+  order?: OrderMode | { mode: OrderMode; concurrent?: string[] };
   /** Underlying fetch used in record/live modes. Default: globalThis.fetch. */
   fetch?: typeof fetch;
 }
@@ -53,6 +60,11 @@ export interface Tape {
 /** Open a cassette. The tape records on first run, replays after. */
 export function openCassette(path: string, options: TapeOptions = {}): Tape {
   const mode = options.mode ?? modeFromEnv();
+  const rawOrder = options.order ?? "strict";
+  const order: OrderPolicy =
+    typeof rawOrder === "string"
+      ? { mode: rawOrder, concurrent: [] }
+      : { mode: rawOrder.mode, concurrent: rawOrder.concurrent ?? [] };
   const session: TapeSession = {
     path,
     // Record mode starts FRESH: appending across separate record runs mixes
@@ -61,7 +73,7 @@ export function openCassette(path: string, options: TapeOptions = {}): Tape {
     cassette: mode === "record" ? emptyCassette(VERSION) : loadOrCreate(path, VERSION),
     mode,
     match: { mode: options.match?.mode ?? "smart", ignore: options.match?.ignore ?? [] },
-    order: options.order ?? "strict",
+    order,
     consumed: new Set(),
     mismatches: [],
     dirty: false,

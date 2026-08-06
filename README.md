@@ -14,6 +14,10 @@ Record a real agent run once. Replay it in CI forever: zero tokens, zero flakine
 
 ## Quick start
 
+```bash
+npm install stonetape@alpha
+```
+
 ```ts
 import { openCassette } from "stonetape";
 import OpenAI from "openai";
@@ -77,7 +81,8 @@ The second row of Bug B is the underrated half: a mock answers *any* conversatio
 ## What stonetape does
 
 - **Records** real LLM interactions — requests, responses, tool-call chains, streaming chunks — into human-readable YAML cassettes you commit and review in PRs.
-- **Replays** them deterministically. **Fail-closed:** in replay mode, no unrecorded network call ever escapes. Unmatched requests fail with an explanation of exactly what differed — including chain position ("expected call 2 of 3").
+- **Replays** them deterministically. **Fail-closed:** in replay mode, no unrecorded network call ever escapes. Unmatched requests fail with an explanation of exactly what differed — including chain position ("expected call 2 of 3"). Swallowed errors don't hide: if your app's fallback layer catches a mismatch, the vitest helper re-raises it on teardown.
+- **Understands agent chains.** `order: "strict"` (default) catches reordered, duplicated, and drifted calls. Apps with fire-and-forget side calls declare them: `order: { mode: "strict", concurrent: ["/telemetry"] }` — the main chain stays guarded while detached calls match anywhere.
 - **Redacts** known secret shapes (auth headers, API-key patterns) before anything touches disk — plus safety checks. Don't rely on it blindly for PII.
 
 ## What stonetape does NOT do

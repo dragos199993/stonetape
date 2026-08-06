@@ -2,8 +2,15 @@
  * stonetape — Turn real agent runs into fast, hermetic regression tests.
  * https://stonetape.dev
  */
-import { loadOrCreate, saveCassette } from "./store/fs.js";
-import { type Mode, type OrderMode, type TapeSession, createFetch } from "./transport/fetch.js";
+import { loadCassette, loadOrCreate, saveCassette } from "./store/fs.js";
+import { emptyCassette } from "./schema/cassette.js";
+import {
+  type Mode,
+  type OrderMode,
+  type TapeSession,
+  StonetapeReplayError,
+  createFetch,
+} from "./transport/fetch.js";
 import type { MatchOptions } from "./matching/fingerprint.js";
 
 export { StonetapeReplayError } from "./transport/fetch.js";
@@ -42,7 +49,10 @@ export function openCassette(path: string, options: TapeOptions = {}): Tape {
   const mode = options.mode ?? modeFromEnv();
   const session: TapeSession = {
     path,
-    cassette: loadOrCreate(path, VERSION),
+    // Record mode starts FRESH: appending across separate record runs mixes
+    // stale interactions (e.g. a failed attempt) into the chain. Re-record
+    // means re-record.
+    cassette: mode === "record" ? emptyCassette(VERSION) : loadOrCreate(path, VERSION),
     mode,
     match: { mode: options.match?.mode ?? "smart", ignore: options.match?.ignore ?? [] },
     order: options.order ?? "strict",
@@ -63,4 +73,33 @@ export function modeFromEnv(): Mode {
   const raw = process.env.STONETAPE_MODE?.toLowerCase();
   if (raw === "record" || raw === "live") return raw;
   return "replay";
+}
+
+/**
+ * Find a StonetapeReplayError anywhere in an error's `cause` chain.
+ *
+ * Real SDKs (openai, anthropic) catch fetch exceptions, retry them, and wrap
+ * them in their own connection-error types — so `instanceof` on the surface
+ * error is not enough. Use this in tests:
+ *
+ *   const err = await run().catch((e) => e);
+ *   expect(unwrapMismatch(err)?.message).toContain("Expected call: 2 of 2");
+ *
+ * Tip: construct SDK clients with `maxRetries: 0` in replay — retrying a
+ * deterministic mismatch only wastes time.
+ */
+export function unwrapMismatch(err: unknown): StonetapeReplayError | undefined {
+  let current: unknown = err;
+  const seen = new Set<unknown>();
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    if (current instanceof StonetapeReplayError) return current;
+    current = current.cause;
+  }
+  return undefined;
+}
+
+/** True if the error (or anything in its cause chain) is a cassette mismatch. */
+export function isCassetteMismatch(err: unknown): boolean {
+  return unwrapMismatch(err) !== undefined;
 }

@@ -44,7 +44,9 @@ export interface TapeSession {
   dirty: boolean;
 }
 
-export class StonetapeReplayError extends Error {}
+export class StonetapeReplayError extends Error {
+  override name = "StonetapeReplayError";
+}
 
 /** Build a `fetch` bound to a session. Pass it to your SDK client. */
 export function createFetch(session: TapeSession, realFetch: typeof fetch = fetch): typeof fetch {

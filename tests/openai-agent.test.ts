@@ -14,7 +14,7 @@
 import { existsSync } from "node:fs";
 import OpenAI from "openai";
 import { describe, expect, it } from "vitest";
-import { StonetapeReplayError, openCassette, type Tape } from "../src/index.js";
+import { StonetapeReplayError, openCassette, unwrapMismatch, type Tape } from "../src/index.js";
 import { loadCassette } from "../src/store/fs.js";
 
 const CASSETTE = "tests/cassettes/openai-weather-agent.yaml";
@@ -60,6 +60,8 @@ async function runWeatherAgent(
   const client = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY ?? "stonetape-replay-no-key-needed",
     fetch: tape.fetch,
+    // In replay, a mismatch is deterministic — retrying it only wastes time.
+    maxRetries: 0,
   });
 
   let toolExecutions = 0;
@@ -67,7 +69,14 @@ async function runWeatherAgent(
     { role: "user", content: question },
   ];
 
-  const first = await client.chat.completions.create({ model: MODEL, messages, tools });
+  const first = await client.chat.completions.create({
+    model: MODEL,
+    messages,
+    tools,
+    // gpt-5.6 line: function tools on /v1/chat/completions require
+    // reasoning_effort "none" (real API constraint, discovered on record)
+    reasoning_effort: "none",
+  });
   const assistantMsg = first.choices[0]?.message;
   if (!assistantMsg) throw new Error("no assistant message");
   const toolCall = assistantMsg.tool_calls?.[0];
@@ -86,7 +95,12 @@ async function runWeatherAgent(
         content: JSON.stringify(result),
       });
     }
-    const second = await client.chat.completions.create({ model: MODEL, messages, tools });
+    const second = await client.chat.completions.create({
+      model: MODEL,
+      messages,
+      tools,
+      reasoning_effort: "none",
+    });
     return { answer: second.choices[0]?.message.content ?? null, toolExecutions };
   }
   return { answer: assistantMsg.content ?? null, toolExecutions };
@@ -133,10 +147,11 @@ describe.skipIf(!HAVE_CASSETTE && !RECORDING)("real OpenAI agent (Demo 2)", () =
       const err = await runWeatherAgent(tape, "What is the weather in Cluj right now?", {
         dropToolResult: true,
       }).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(StonetapeReplayError);
-      const msg = (err as Error).message;
-      expect(msg).toContain("Expected call: 2 of 2");
-      expect(msg).toContain("(missing)"); // the tool message is gone from messages[]
+      // Real SDKs wrap fetch errors (openai: APIConnectionError) — unwrap the cause chain.
+      const mismatch = unwrapMismatch(err);
+      expect(mismatch).toBeInstanceOf(StonetapeReplayError);
+      expect(mismatch?.message).toContain("Expected call: 2 of 2");
+      expect(mismatch?.message).toContain("(missing)"); // the tool message is gone from messages[]
     } finally {
       tape.close();
     }

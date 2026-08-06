@@ -20,10 +20,10 @@
     "regression"
   ],
   "homepage": "https://stonetape.dev",
-  "bugs": "https://github.com/dragosnedelcu/stonetape/issues",
+  "bugs": "https://github.com/dragos199993/stonetape/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dragosnedelcu/stonetape.git"
+    "url": "git+https://github.com/dragos199993/stonetape.git"
   },
   "license": "MIT",
   "author": "Dragos Nedelcu",

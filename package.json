@@ -1,6 +1,6 @@
 {
   "name": "stonetape",
-  "version": "0.1.0-dev.0",
+  "version": "0.1.0-alpha.0",
   "description": "Turn real agent runs into fast, hermetic regression tests. Record real LLM API interactions once, replay them deterministically in CI — zero tokens, zero flakiness.",
   "keywords": [
     "llm",
@@ -50,6 +50,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "demo": "tsup && node examples/demo.mjs",
     "record:agent": "STONETAPE_MODE=record vitest run tests/openai-agent.test.ts",
     "test": "vitest run",

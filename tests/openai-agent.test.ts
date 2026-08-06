@@ -23,10 +23,12 @@ const HAVE_CASSETTE = existsSync(CASSETTE);
 
 // Replay must send byte-identical requests, so the model name comes from the
 // cassette itself when available (self-healing across whatever you recorded).
+// Default: gpt-5.6-luna — the cheapest 5.6-line model ($0.20/$1.20 per MTok),
+// plenty for a weather tool call.
 const MODEL =
   loadCassette(CASSETTE)?.interactions[0]?.canonical?.model ??
   process.env.OPENAI_MODEL ??
-  "gpt-4o-mini";
+  "gpt-5.6-luna";
 
 // ── the agent under test ───────────────────────────────────────────────────
 

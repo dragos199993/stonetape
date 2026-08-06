@@ -50,6 +50,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "demo": "tsup && node examples/demo.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

@@ -43,6 +43,18 @@ test("weather agent", cassette("weather-agent", async ({ fetch }) => {
 }));
 ```
 
+## Why stonetape
+
+Real situations this solves:
+
+1. **Your CI hits real APIs.** Tests cost money per push, run serialized "to keep spend down," carry `retry: 1` because live hops blip, and engineers re-run red builds until they pass. With cassettes: $0, fully parallel, deterministic — red means regression again.
+2. **Your mock is lying.** A hand-written mock returns the response you *imagined*. The real model returns `content: null` plus two tool calls with escaped-JSON arguments — and your parser chokes on exactly that. Cassettes preserve the messy payload that actually happened.
+3. **Silent agent-chain breaks.** A refactor drops the tool result from the conversation. The agent *still answers* — LLMs paper over missing context — so demos pass while the model quietly hallucinates without its data. Strict chain replay fails instantly: `at messages.2: recorded: {role:"tool",…} / incoming: (missing)`.
+4. **Refactor paralysis.** SDK migrations, model swaps, prompt-builder rewrites — today verified by eyeballing outputs. Replay pins the *request side* too: dropped system prompts, reordered messages, changed `tool_choice` all fail with field-level diffs.
+5. **Contributors without keys.** `skipIf(!API_KEY)` means forks, new hires, and fork CI get zero LLM-path coverage. Cassettes live in the repo; everyone replays the full suite offline.
+6. **Unreproducible streaming bugs.** That one tool call split across two SSE chunks at the worst boundary? The cassette replays the exact chunk sequence, forever.
+7. **"Did my prompt change break anything else?"** *(roadmap)* Re-record and see the blast radius as a reviewable diff: "3 of 42 cassettes changed — here's what the model does differently."
+
 ## What stonetape does
 
 - **Records** real LLM interactions — requests, responses, tool-call chains, streaming chunks — into human-readable YAML cassettes you commit and review in PRs.

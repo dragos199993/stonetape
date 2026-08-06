@@ -20,7 +20,7 @@ export type { MatchOptions, MatchMode } from "./matching/fingerprint.js";
 export type { Cassette, Interaction } from "./schema/cassette.js";
 export { SCHEMA_VERSION } from "./schema/cassette.js";
 
-const VERSION = "0.1.0-alpha.0";
+const VERSION = "0.1.0-alpha.1";
 
 export interface TapeOptions {
   /** record | replay | live. Default: STONETAPE_MODE env, else "replay". */

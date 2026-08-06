@@ -16,7 +16,7 @@ import {
   formatDifferences,
   normalizeRequest,
 } from "../matching/fingerprint.js";
-import { redactBody, redactHeaders } from "../redact.js";
+import { redactBody, redactHeaders, redactText } from "../redact.js";
 import {
   type CanonicalExchange,
   type Cassette,
@@ -40,6 +40,9 @@ export interface TapeSession {
   order: OrderMode;
   /** seqs already consumed in this replay run — enforces per-run isolation. */
   consumed: Set<number>;
+  /** Mismatches raised during replay — kept even if the app swallows the error
+   * (resilience layers catch it and fall back; see issue #1). */
+  mismatches: StonetapeReplayError[];
   /** Called after a recording run to persist new interactions. */
   dirty: boolean;
 }
@@ -99,9 +102,9 @@ function replay(session: TapeSession, method: string, url: string, body: unknown
       session.consumed.add(next.seq);
       return materialize(next);
     }
-    throw new StonetapeReplayError(
+    throw remember(session, new StonetapeReplayError(
       buildMismatchMessage(session, method, url, body, { strictNext: next, fp }),
-    );
+    ));
   }
 
   const hit = unconsumed.find((i) => i.request.fingerprint === fp);
@@ -109,7 +112,12 @@ function replay(session: TapeSession, method: string, url: string, body: unknown
     session.consumed.add(hit.seq);
     return materialize(hit);
   }
-  throw new StonetapeReplayError(buildMismatchMessage(session, method, url, body, { fp }));
+  throw remember(session, new StonetapeReplayError(buildMismatchMessage(session, method, url, body, { fp })));
+}
+
+function remember(session: TapeSession, err: StonetapeReplayError): StonetapeReplayError {
+  session.mismatches.push(err);
+  return err;
 }
 
 /** The error message IS the product: explain, don't just fail. */
@@ -232,7 +240,7 @@ async function captureResponse(
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      chunks.push({ i: i++, data: decoder.decode(value, { stream: true }) });
+      chunks.push({ i: i++, data: redactText(decoder.decode(value, { stream: true })) });
     }
     return { status: response.status, headers, stream: chunks };
   }

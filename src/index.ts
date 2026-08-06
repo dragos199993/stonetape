@@ -40,6 +40,12 @@ export interface Tape {
   /** Pass this to your SDK client: `new OpenAI({ fetch: tape.fetch })`. */
   fetch: typeof fetch;
   mode: Mode;
+  /**
+   * Mismatches raised during replay — preserved even when the application
+   * swallows the error (fallback/retry layers). Check this in teardown;
+   * the vitest helper does it automatically.
+   */
+  readonly mismatches: readonly StonetapeReplayError[];
   /** Persist new recordings (no-op in replay/live). Always call when done. */
   close(): void;
 }
@@ -57,12 +63,16 @@ export function openCassette(path: string, options: TapeOptions = {}): Tape {
     match: { mode: options.match?.mode ?? "smart", ignore: options.match?.ignore ?? [] },
     order: options.order ?? "strict",
     consumed: new Set(),
+    mismatches: [],
     dirty: false,
   };
   const boundFetch = createFetch(session, options.fetch ?? fetch);
   return {
     fetch: boundFetch,
     mode,
+    get mismatches() {
+      return session.mismatches as readonly StonetapeReplayError[];
+    },
     close() {
       if (session.mode === "record" && session.dirty) saveCassette(path, session.cassette);
     },

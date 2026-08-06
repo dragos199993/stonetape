@@ -21,6 +21,8 @@ const TOKEN_PATTERNS: RegExp[] = [
   /sk-[A-Za-z0-9_-]{16,}/g, // OpenAI-style secret keys
   /sk-ant-[A-Za-z0-9_-]{16,}/g, // Anthropic
   /Bearer\s+[A-Za-z0-9._~+/-]{16,}=*/g,
+  // JWTs — including ones minted in RESPONSE bodies by token-vending endpoints
+  /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
 ];
 
 export const REDACTED = "[REDACTED]";

@@ -28,7 +28,7 @@ Enter
 Type "GIF=1 npx vitest run tests/gif/2-bug-with-cassette.test.ts"
 Enter
 Sleep 7s
-Type "# ✗ caught: 'Expected call: 2 of 2' — the diff names the lost \"city\":\"Cluj\""
+Type `# ✗ caught: 'Expected call: 2 of 2' — the diff names the lost "city":"Cluj"`
 Enter
 Sleep 3s
 

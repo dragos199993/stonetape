@@ -55,6 +55,25 @@ Real situations this solves:
 6. **Unreproducible streaming bugs.** That one tool call split across two SSE chunks at the worst boundary? The cassette replays the exact chunk sequence, forever.
 7. **"Did my prompt change break anything else?"** *(roadmap)* Re-record and see the blast radius as a reviewable diff: "3 of 42 cassettes changed — here's what the model does differently."
 
+## The mock that lies (a real example, from a real cassette)
+
+`tests/demo1-mock-vs-cassette.test.ts` runs the same agent code under a hand-written mock and under a stonetape cassette recorded from the live API. The app has two bugs that are everywhere in the wild:
+
+- **Bug A:** `message.content.trim()` — but on tool-call turns the real API sends `content: null`
+- **Bug B:** treating `tool_call.function.arguments` as an object — the real API sends a JSON *string*
+
+Scorecard, measured:
+
+| | Hand-written mock | stonetape cassette |
+|---|---|---|
+| Setup | ~35 lines of imagined response | 1 recording run (`$0.0003`) |
+| Bug A (`content: null`) | ✅ passes — **ships to prod** | 💥 caught: real `TypeError` in CI |
+| Bug B (lost tool argument) | ✅ passes — mocks never validate what you *send* | 💥 caught: `Expected call: 2 of 2`, diff names the lost `"city":"Cluj"` |
+| Correct implementation | ✅ passes | ✅ passes, offline, 4ms |
+| Maintenance | drifts from reality forever | re-record with one command |
+
+The second row of Bug B is the underrated half: a mock answers *any* conversation you send it, however broken. A cassette pins the request side too.
+
 ## What stonetape does
 
 - **Records** real LLM interactions — requests, responses, tool-call chains, streaming chunks — into human-readable YAML cassettes you commit and review in PRs.

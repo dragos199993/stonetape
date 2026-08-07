@@ -13,6 +13,7 @@ import {
   createFetch,
 } from "./transport/fetch.js";
 import type { MatchOptions } from "./matching/fingerprint.js";
+import { err, recDot } from "./ui/style.js";
 
 export { StonetapeReplayError } from "./transport/fetch.js";
 export type { Mode, OrderMode, OrderPolicy } from "./transport/fetch.js";
@@ -86,7 +87,15 @@ export function openCassette(path: string, options: TapeOptions = {}): Tape {
       return session.mismatches as readonly StonetapeReplayError[];
     },
     close() {
-      if (session.mode === "record" && session.dirty) saveCassette(path, session.cassette);
+      if (session.mode === "record" && session.dirty) {
+        saveCassette(path, session.cassette);
+        if (process.env.STONETAPE_QUIET === undefined) {
+          const n = session.cassette.interactions.length;
+          process.stderr.write(
+            `${recDot(err)} REC  ${path} ${err.dim(`\u00b7 ${n} call${n === 1 ? "" : "s"} written`)}\n`,
+          );
+        }
+      }
     },
   };
 }

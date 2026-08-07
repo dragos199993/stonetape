@@ -4,7 +4,7 @@ Output assets/demo.gif
 Set FontSize 16
 Set Width 1200
 Set Height 800
-Set Theme "Catppuccin Mocha"
+Set Theme {"name": "stonetape", "background": "#17130e", "foreground": "#e8e2d4", "cursor": "#d43d2a", "selection": "#3a332a", "black": "#211d16", "red": "#d43d2a", "green": "#8aa96b", "yellow": "#d1a34f", "blue": "#9aa4b8", "magenta": "#b98ba5", "cyan": "#8fb3a5", "white": "#e8e2d4", "brightBlack": "#5c5347", "brightRed": "#e05a41", "brightGreen": "#a3c184", "brightYellow": "#e2b968", "brightBlue": "#aeb8cb", "brightMagenta": "#cda3bb", "brightCyan": "#a7c9bc", "brightWhite": "#f4efe3"}
 Set TypingSpeed 25ms
 
 Hide
@@ -22,7 +22,7 @@ Type "npx vitest run gif/mock"
 Enter
 Wait+Screen /1 passed/
 Sleep 1.5s
-Type "# green — ship it 🚢"
+Type "# green. ship it 🚢"
 Enter
 Sleep 1s
 
@@ -45,6 +45,6 @@ Type "npx vitest run gif/fixed"
 Enter
 Wait+Screen /1 passed/
 Sleep 1s
-Type "# offline · no API keys · deterministic — stonetape.dev"
+Type "# offline · no API keys · deterministic · stonetape.dev"
 Enter
 Sleep 2.5s

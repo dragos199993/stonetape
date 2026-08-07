@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { parse } from "yaml";
 import type { Cassette, Interaction } from "../schema/cassette.js";
+import { out, recDot } from "../ui/style.js";
 
 const [, , command, ...args] = process.argv;
 
@@ -19,10 +20,10 @@ switch (command) {
     break;
   case "review":
     console.log(
-      "stonetape review — coming in v0.1:\n" +
-        "  · list cassettes changed on this branch\n" +
-        "  · show behavior diffs (chain-level for agent sessions)\n" +
-        "  · approve per cassette or all\n",
+      `stonetape review ${out.dim("(coming in v0.1)")}\n` +
+        "  \u00b7 list cassettes changed on this branch\n" +
+        "  \u00b7 show behavior diffs (chain-level for agent sessions)\n" +
+        "  \u00b7 approve per cassette or all\n",
     );
     break;
   case "--version":
@@ -31,13 +32,12 @@ switch (command) {
     break;
   default:
     console.log(
-      "stonetape — Turn real agent runs into hermetic regression tests.\n\n" +
-        "Usage:\n" +
+      `\n\ud83d\udcfc ${out.bold("stonetape")} ${out.dim("\u00b7 record once, replay forever")}\n\n` +
         "  stonetape diff <cassette>   inspect a cassette / show changes vs git HEAD\n" +
         "  stonetape review            review cassette changes (coming soon)\n" +
         "  stonetape --version         print version\n\n" +
-        "Record: STONETAPE_MODE=record vitest\n" +
-        "Replay: vitest\n",
+        `  ${recDot(out)} REC   ${out.dim("STONETAPE_MODE=record vitest")}\n` +
+        `  \u25b6 PLAY  ${out.dim("vitest")}\n`,
     );
 }
 
@@ -52,9 +52,12 @@ function diff(path: string | undefined): void {
   }
   const current = parse(readFileSync(path, "utf8")) as Cassette;
 
-  console.log(`Cassette: ${path}`);
-  console.log(`Recorded: ${current.meta.updatedAt} by stonetape ${current.recorder.version}`);
-  console.log(`Calls: ${current.interactions.length}\n`);
+  console.log(`\n\ud83d\udcfc ${out.bold(path)}`);
+  console.log(
+    out.dim(
+      `   recorded ${current.meta.updatedAt} \u00b7 stonetape ${current.recorder.version} \u00b7 ${current.interactions.length} calls`,
+    ) + "\n",
+  );
 
   const previous = gitHeadVersion(path);
   if (!previous) {
@@ -78,16 +81,16 @@ function diff(path: string | undefined): void {
   for (let seq = 0; seq <= maxSeq; seq++) {
     const prev = prevBySeq.get(seq);
     const curr = currBySeq.get(seq);
-    if (prev && !curr) console.log(`  - call ${seq + 1} removed   (${label(prev)})`);
-    else if (!prev && curr) console.log(`  + call ${seq + 1} added     (${label(curr)})`);
+    if (prev && !curr) console.log(out.red(`  - call ${seq + 1} removed   (${label(prev)})`));
+    else if (!prev && curr) console.log(out.green(`  + call ${seq + 1} added     (${label(curr)})`));
     else if (prev && curr && prev.request.fingerprint !== curr.request.fingerprint)
-      console.log(`  ~ call ${seq + 1} request changed  (${label(curr)})`);
+      console.log(out.yellow(`  ~ call ${seq + 1} request changed  (${label(curr)})`));
     else if (
       prev &&
       curr &&
       JSON.stringify(prev.response) !== JSON.stringify(curr.response)
     )
-      console.log(`  ~ call ${seq + 1} response changed (${label(curr)})`);
+      console.log(out.yellow(`  ~ call ${seq + 1} response changed (${label(curr)})`));
   }
   console.log();
 }
@@ -96,7 +99,7 @@ function printChain(interactions: Interaction[]): void {
   for (const i of interactions) {
     console.log(
       `  ${String(i.seq + 1).padStart(2)}. ${label(i)}  ` +
-        `fp:${i.request.fingerprint.slice(0, 12)}  ${i.meta.recordedAt}`,
+        out.dim(`fp:${i.request.fingerprint.slice(0, 12)}  ${i.meta.recordedAt}`),
     );
   }
   console.log();
@@ -106,7 +109,7 @@ function label(i: Interaction): string {
   const kind = i.canonical ? [i.canonical.kind, i.canonical.model].filter(Boolean).join(" ") : "?";
   const url = new URL(i.request.url);
   const streaming = i.response.stream ? " [stream]" : "";
-  return `${i.request.method} ${url.pathname} — ${kind}${streaming}`;
+  return `${i.request.method} ${url.pathname} \u00b7 ${kind}${streaming}`;
 }
 
 function gitHeadVersion(path: string): Cassette | undefined {

@@ -102,3 +102,43 @@ describe("swallowed mismatches (issue #1)", () => {
     await expect(run()).rejects.toThrow(/Stonetape cassette mismatch/);
   });
 });
+
+describe("match-config evolution never invalidates cassettes (e2e-dogfood finding #5)", () => {
+  it("adding an ignore path AFTER recording still matches (the documented workflow)", async () => {
+    const path = join(dir, "evolve.yaml");
+    const rec = openCassette(path, { mode: "record" });
+    await rec.fetch(`${baseUrl}/v1/chat`, {
+      method: "POST",
+      body: JSON.stringify({ step: "a", request_ts: 111 }),
+    });
+    rec.close();
+
+    // replay with a DIFFERENT body value in a NEWLY-ignored field:
+    const tape = openCassette(path, {
+      mode: "replay",
+      match: { ignore: ["request_ts"] }, // added after recording
+    });
+    const res = await tape.fetch(`${baseUrl}/v1/chat`, {
+      method: "POST",
+      body: JSON.stringify({ step: "a", request_ts: 999 }),
+    });
+    expect(res.status).toBe(200);
+    tape.close();
+  });
+
+  it("enabling ignoreOrigin at replay matches cassettes recorded with full URLs", async () => {
+    const path = join(dir, "origin-evolve.yaml");
+    const rec = openCassette(path, { mode: "record" }); // full-URL fingerprints
+    await rec.fetch(`${baseUrl}/v1/chat`, { method: "POST", body: JSON.stringify({ step: "b" }) });
+    rec.close();
+
+    const tape = openCassette(path, { mode: "replay", match: { ignoreOrigin: true } });
+    // same path, DIFFERENT origin:
+    const res = await tape.fetch(`http://10.0.0.1:9999/v1/chat`, {
+      method: "POST",
+      body: JSON.stringify({ step: "b" }),
+    });
+    expect(res.status).toBe(200);
+    tape.close();
+  });
+});

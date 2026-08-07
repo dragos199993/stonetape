@@ -32,7 +32,7 @@ switch (command) {
     break;
   case "--version":
   case "-v":
-    console.log("stonetape 0.1.0-alpha.3");
+    console.log("stonetape 0.1.0-alpha.4");
     break;
   default:
     console.log(

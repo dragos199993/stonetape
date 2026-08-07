@@ -101,7 +101,15 @@ export function createFetch(session: TapeSession, realFetch: typeof fetch = fetc
 }
 
 function replay(session: TapeSession, method: string, url: string, body: unknown): Response {
-  const fp = fingerprint(method, url, body, session.match);
+  // Fingerprints are recomputed from stored requests with CURRENT match
+  // options — never trusted from the cassette. This keeps old cassettes
+  // valid when matching config evolves (adding ignore paths, ignoreOrigin),
+  // which is exactly the "mismatch names the field → add ignore → re-run"
+  // workflow. Bodies are redacted before fingerprinting on both sides so
+  // stored (redacted) and incoming (raw) requests normalize identically.
+  const fp = fingerprint(method, url, redactBody(body), session.match);
+  const fpOf = (i: Interaction): string =>
+    fingerprint(i.request.method, i.request.url, i.request.body, session.match);
   const unconsumed = session.cassette.interactions.filter((i) => !session.consumed.has(i.seq));
 
   const relaxed =
@@ -114,21 +122,21 @@ function replay(session: TapeSession, method: string, url: string, body: unknown
     const next = unconsumed.find(
       (i) => !session.order.concurrent.some((p) => i.request.url.includes(p)),
     );
-    if (next && next.request.fingerprint === fp) {
+    if (next && fpOf(next) === fp) {
       session.consumed.add(next.seq);
       return materialize(next);
     }
     throw remember(session, new StonetapeReplayError(
-      buildMismatchMessage(session, method, url, body, { strictNext: next, fp }),
+      buildMismatchMessage(session, method, url, body, { strictNext: next, fp, fpOf }),
     ));
   }
 
-  const hit = unconsumed.find((i) => i.request.fingerprint === fp);
+  const hit = unconsumed.find((i) => fpOf(i) === fp);
   if (hit) {
     session.consumed.add(hit.seq);
     return materialize(hit);
   }
-  throw remember(session, new StonetapeReplayError(buildMismatchMessage(session, method, url, body, { fp })));
+  throw remember(session, new StonetapeReplayError(buildMismatchMessage(session, method, url, body, { fp, fpOf })));
 }
 
 function remember(session: TapeSession, err: StonetapeReplayError): StonetapeReplayError {
@@ -142,7 +150,7 @@ function buildMismatchMessage(
   method: string,
   url: string,
   body: unknown,
-  ctx: { strictNext?: Interaction | undefined; fp: string },
+  ctx: { strictNext?: Interaction | undefined; fp: string; fpOf: (i: Interaction) => string },
 ): string {
   const total = session.cassette.interactions.length;
   const position = session.consumed.size + 1;
@@ -166,7 +174,7 @@ function buildMismatchMessage(
     );
   } else if (session.order.mode === "strict") {
     const next = ctx.strictNext;
-    const outOfOrder = unconsumed.find((i) => i.request.fingerprint === ctx.fp);
+    const outOfOrder = unconsumed.find((i) => ctx.fpOf(i) === ctx.fp);
     if (outOfOrder && next) {
       lines.push(
         `This request matches recorded call ${outOfOrder.seq + 1} (${describe(outOfOrder)}),`,

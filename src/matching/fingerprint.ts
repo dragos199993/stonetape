@@ -153,11 +153,31 @@ function walk(a: unknown, b: unknown, path: string, out: Difference[], limit: nu
 export function formatDifferences(diffs: Difference[]): string {
   if (diffs.length === 0) return "  (bodies are equal after normalization — check method/url)";
   return diffs
-    .map(
-      (d) =>
-        `  at ${d.path}:\n    recorded: ${preview(d.recorded)}\n    incoming: ${preview(d.incoming)}`,
-    )
+    .map((d) => {
+      const [rec, inc] = focusedPreviews(d.recorded, d.incoming);
+      return `  at ${d.path}:\n    recorded: ${rec}\n    incoming: ${inc}`;
+    })
     .join("\n");
+}
+
+/**
+ * For a pair of long strings, window both previews around the FIRST differing
+ * character — otherwise two 5KB system prompts that differ at char 3801 look
+ * identical at preview length. (e2e-dogfood finding #6)
+ */
+function focusedPreviews(a: unknown, b: unknown): [string, string] {
+  if (typeof a === "string" && typeof b === "string" && (a.length > 120 || b.length > 120)) {
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    const from = Math.max(0, i - 40);
+    const windowOf = (s: string) => {
+      const prefix = from > 0 ? `…[${from} same chars]…` : "";
+      const chunk = s.slice(from, from + 120);
+      return `${prefix}${chunk}${s.length > from + 120 ? "…" : ""}`;
+    };
+    return [windowOf(a), windowOf(b)];
+  }
+  return [preview(a), preview(b)];
 }
 
 function preview(v: unknown): string {

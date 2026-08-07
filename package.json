@@ -1,6 +1,6 @@
 {
   "name": "stonetape",
-  "version": "0.1.0-alpha.4",
+  "version": "0.1.0-alpha.5",
   "description": "Turn real agent runs into fast, hermetic regression tests. Record real LLM API interactions once, replay them deterministically in CI — zero tokens, zero flakiness.",
   "keywords": [
     "llm",

@@ -49,7 +49,12 @@ const HOP_BY_HOP = new Set([
 
 export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
   const target = new URL(options.target);
-  const tape = openCassette(options.cassette, options);
+  const tape = openCassette(options.cassette, {
+    ...options,
+    // Proxy cassettes must be environment-portable: the upstream origin is
+    // wiring, not behavior. Explicit ignoreOrigin: false opts out.
+    match: { ignoreOrigin: true, ...options.match },
+  });
 
   const server: Server = createServer(async (req, res) => {
     try {
@@ -59,7 +64,9 @@ export async function startProxy(options: ProxyOptions): Promise<ProxyHandle> {
         const mismatch = unwrapMismatch(err);
         // Surface the full explanation both to the caller and the operator.
         process.stderr.write(`\n${mismatch?.message ?? String(err)}\n`);
-        res.writeHead(501, { "content-type": "text/plain" });
+        // 400: deliberately NON-retryable. A mismatch is deterministic — 5xx
+        // makes resilient SDK clients retry-storm the same failure.
+        res.writeHead(400, { "content-type": "text/plain" });
         res.end(mismatch?.message ?? String(err));
       } else {
         res.writeHead(502, { "content-type": "text/plain" });

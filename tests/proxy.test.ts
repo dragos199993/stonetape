@@ -68,13 +68,15 @@ describe("stonetape proxy (process-level record/replay)", () => {
     expect(raw).toContain("[REDACTED]");
   });
 
-  it("replays for an external client with the upstream DEAD", async () => {
+  it("replays for an external client with the upstream DEAD — and a DIFFERENT target origin", async () => {
     upstream.close(); // no more real backend from here on
     const hitsBefore = upstreamHits;
 
     const proxy = await startProxy({
       cassette: cassettePath,
-      target: upstreamUrl, // resolves, but nothing listens — must not matter
+      // Different origin than record time: proxy cassettes are portable
+      // (ignoreOrigin is the proxy default). Nothing listens here either.
+      target: "http://127.0.0.1:9",
       mode: "replay",
     });
     const r1 = await fetch(`${proxy.url}/v1/chat`, {
@@ -92,7 +94,7 @@ describe("stonetape proxy (process-level record/replay)", () => {
     await proxy.close();
   });
 
-  it("answers unrecorded requests with 501 + the mismatch explanation", async () => {
+  it("answers unrecorded requests with a NON-RETRYABLE 400 + the mismatch explanation", async () => {
     const proxy = await startProxy({
       cassette: cassettePath,
       target: upstreamUrl,
@@ -103,7 +105,7 @@ describe("stonetape proxy (process-level record/replay)", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ q: "NEVER RECORDED" }),
     });
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(400); // 5xx would make resilient SDKs retry-storm
     const text = await res.text();
     expect(text).toContain("Stonetape cassette mismatch");
     expect(text).toContain("recorded: hello");

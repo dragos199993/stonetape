@@ -18,6 +18,12 @@ export interface MatchOptions {
    * Supports `[*]` for "every array element", e.g. `messages[*].content.timestamp`.
    */
   ignore?: string[];
+  /**
+   * Match on path + query only, ignoring scheme/host/port. Essential for
+   * proxy-mode cassettes, where the upstream origin is infrastructure that
+   * legitimately differs between record and replay environments.
+   */
+  ignoreOrigin?: boolean;
 }
 
 /** Normalize a request into the object that gets fingerprinted. */
@@ -30,11 +36,12 @@ export function normalizeRequest(
   const u = new URL(url);
   // Volatile-by-construction: never part of identity.
   u.searchParams.delete("request_id");
+  const normUrl = opts.ignoreOrigin ? `${u.pathname}${u.search}` : u.toString();
   let normBody = body;
   if (opts.mode === "smart" && opts.ignore?.length && typeof body === "object" && body !== null) {
     normBody = applyIgnores(structuredClone(body), opts.ignore);
   }
-  return { method: method.toUpperCase(), url: u.toString(), body: normBody };
+  return { method: method.toUpperCase(), url: normUrl, body: normBody };
 }
 
 export function fingerprint(

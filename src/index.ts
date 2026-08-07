@@ -21,7 +21,7 @@ export type { MatchOptions, MatchMode } from "./matching/fingerprint.js";
 export type { Cassette, Interaction } from "./schema/cassette.js";
 export { SCHEMA_VERSION } from "./schema/cassette.js";
 
-const VERSION = "0.1.0-alpha.2";
+const VERSION = "0.1.0-alpha.3";
 
 export interface TapeOptions {
   /** record | replay | live. Default: STONETAPE_MODE env, else "replay". */
@@ -79,7 +79,11 @@ export function openCassette(path: string, options: TapeOptions = {}): Tape {
     // means re-record.
     cassette: mode === "record" ? emptyCassette(VERSION) : loadOrCreate(path, VERSION),
     mode,
-    match: { mode: options.match?.mode ?? "smart", ignore: options.match?.ignore ?? [] },
+    match: {
+      mode: options.match?.mode ?? "smart",
+      ignore: options.match?.ignore ?? [],
+      ignoreOrigin: options.match?.ignoreOrigin ?? false,
+    },
     order,
     consumed: new Set(),
     mismatches: [],

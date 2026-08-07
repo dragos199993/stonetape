@@ -11,11 +11,15 @@ import { readFileSync, existsSync } from "node:fs";
 import { parse } from "yaml";
 import type { Cassette, Interaction } from "../schema/cassette.js";
 import { out, recDot } from "../ui/style.js";
+import { startProxy } from "../proxy/server.js";
+import type { Mode } from "../transport/fetch.js";
 
 const [, , command, ...args] = process.argv;
 
 switch (command) {
-  case "diff":
+  case "proxy":
+    void proxy(args);
+    break;  case "diff":
     diff(args[0]);
     break;
   case "review":
@@ -28,11 +32,12 @@ switch (command) {
     break;
   case "--version":
   case "-v":
-    console.log("stonetape 0.1.0-alpha.1");
+    console.log("stonetape 0.1.0-alpha.2");
     break;
   default:
     console.log(
       `\n\ud83d\udcfc ${out.bold("stonetape")} ${out.dim("\u00b7 record once, replay forever")}\n\n` +
+        "  stonetape proxy             process-level record/replay (any language)\n" +
         "  stonetape diff <cassette>   inspect a cassette / show changes vs git HEAD\n" +
         "  stonetape review            review cassette changes (coming soon)\n" +
         "  stonetape --version         print version\n\n" +
@@ -122,4 +127,61 @@ function gitHeadVersion(path: string): Cassette | undefined {
   } catch {
     return undefined;
   }
+}
+
+// ── stonetape proxy ─────────────────────────────────────────────────────────
+
+async function proxy(argv: string[]): Promise<void> {
+  const flags = new Map<string, string>();
+  for (let i = 0; i < argv.length; i += 2) {
+    const key = argv[i];
+    const value = argv[i + 1];
+    if (!key?.startsWith("--") || value === undefined) return proxyUsage();
+    flags.set(key.slice(2), value);
+  }
+  const cassette = flags.get("cassette");
+  const target = flags.get("target");
+  if (!cassette || !target) return proxyUsage();
+
+  const mode = (flags.get("mode") ?? process.env.STONETAPE_MODE ?? "replay") as Mode;
+  const ignore = flags.get("ignore")?.split(",").filter(Boolean) ?? [];
+  const orderFlag = flags.get("order") ?? "strict";
+
+  const handle = await startProxy({
+    cassette,
+    target,
+    mode,
+    port: flags.has("port") ? Number(flags.get("port")) : 0,
+    order: orderFlag === "any" ? "any" : "strict",
+    match: { mode: "smart", ignore },
+  });
+
+  console.log(`stonetape proxy ${out.dim(`(${mode})`)}`);
+  console.log(`  listening  ${handle.url}`);
+  console.log(`  cassette   ${cassette}`);
+  console.log(`  target     ${mode === "replay" ? out.dim(`${target} (not contacted)`) : target}`);
+  console.log(`\nPoint your process at it, e.g.:`);
+  console.log(out.dim(`  OPENAI_BASE_URL=${handle.url}/v1  your-command`));
+  console.log(out.dim(`  ANTHROPIC_BASE_URL=${handle.url}  your-command`));
+  console.log(`\nCtrl-C to stop${mode === "record" ? " (cassette is written on exit)" : ""}.`);
+
+  const shutdown = async () => {
+    await handle.close();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+
+function proxyUsage(): void {
+  console.log(
+    `Usage: stonetape proxy --cassette <file> --target <base-url> [options]\n\n` +
+      `  --mode record|replay|live   default: STONETAPE_MODE or replay\n` +
+      `  --port <n>                  default: ephemeral\n` +
+      `  --order strict|any          default: strict\n` +
+      `  --ignore a,b.c              volatile body paths to ignore in matching\n\n` +
+      `Record once:  stonetape proxy --cassette t.yaml --target https://api.openai.com --mode record\n` +
+      `Replay in CI: stonetape proxy --cassette t.yaml --target https://api.openai.com --port 8787`,
+  );
+  process.exit(1);
 }

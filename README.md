@@ -114,6 +114,23 @@ The second row of Bug B is the underrated half: a mock answers *any* conversatio
 | Volatile prompt fields | n/a | strict-match explosions | declarative ignores |
 | Mismatch UX | n/a | generic error | explains what changed, where in the chain |
 
+## Process-level recording: `stonetape proxy`
+
+When the LLM traffic isn't in your test process — agent CLIs, sidecar services, polyglot systems — run stonetape as a recording/replaying reverse proxy and point the process at it via its base-URL env. Works for any language; no TLS tricks, no code changes:
+
+```bash
+# record once (real upstream):
+stonetape proxy --cassette agent.yaml --target https://api.openai.com --mode record
+OPENAI_BASE_URL=http://127.0.0.1:<port>/v1  your-agent-cli "do the thing"
+# Ctrl-C writes the cassette
+
+# replay forever (upstream not contacted, no keys):
+stonetape proxy --cassette agent.yaml --target https://api.openai.com --port 8787
+OPENAI_BASE_URL=http://127.0.0.1:8787/v1  your-agent-cli "do the thing"
+```
+
+Same engine as the in-process transport: identical matching, ordering, redaction, and fail-closed semantics — unrecorded requests answer `501` with the full mismatch explanation. For apps using bare global `fetch` in-process, there's also `tape.install()` (patches and restores `globalThis.fetch`).
+
 ## License
 
 MIT

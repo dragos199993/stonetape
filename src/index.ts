@@ -21,7 +21,7 @@ export type { MatchOptions, MatchMode } from "./matching/fingerprint.js";
 export type { Cassette, Interaction } from "./schema/cassette.js";
 export { SCHEMA_VERSION } from "./schema/cassette.js";
 
-const VERSION = "0.1.0-alpha.1";
+const VERSION = "0.1.0-alpha.2";
 
 export interface TapeOptions {
   /** record | replay | live. Default: STONETAPE_MODE env, else "replay". */
@@ -48,6 +48,12 @@ export interface Tape {
   /** Pass this to your SDK client: `new OpenAI({ fetch: tape.fetch })`. */
   fetch: typeof fetch;
   mode: Mode;
+  /**
+   * Patch `globalThis.fetch` with the tape's fetch — for apps that use bare
+   * global fetch and offer no injection point. Returns an uninstall function;
+   * `close()` also restores automatically.
+   */
+  install(): () => void;
   /**
    * Mismatches raised during replay — preserved even when the application
    * swallows the error (fallback/retry layers). Check this in teardown;
@@ -80,13 +86,24 @@ export function openCassette(path: string, options: TapeOptions = {}): Tape {
     dirty: false,
   };
   const boundFetch = createFetch(session, options.fetch ?? fetch);
+  let restoreGlobal: (() => void) | undefined;
   return {
     fetch: boundFetch,
     mode,
+    install() {
+      const previous = globalThis.fetch;
+      globalThis.fetch = boundFetch;
+      restoreGlobal = () => {
+        globalThis.fetch = previous;
+        restoreGlobal = undefined;
+      };
+      return restoreGlobal;
+    },
     get mismatches() {
       return session.mismatches as readonly StonetapeReplayError[];
     },
     close() {
+      restoreGlobal?.();
       if (session.mode === "record" && session.dirty) {
         saveCassette(path, session.cassette);
         if (process.env.STONETAPE_QUIET === undefined) {
@@ -134,3 +151,6 @@ export function unwrapMismatch(err: unknown): StonetapeReplayError | undefined {
 export function isCassetteMismatch(err: unknown): boolean {
   return unwrapMismatch(err) !== undefined;
 }
+
+export { startProxy } from "./proxy/server.js";
+export type { ProxyOptions, ProxyHandle } from "./proxy/server.js";
